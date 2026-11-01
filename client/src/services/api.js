@@ -1,7 +1,9 @@
 import axios from 'axios';
 
-// API base URL configuration
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001/api';
+// API base URL configuration with automatic endpoint normalization
+const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001/api';
+const cleanBaseUrl = rawBaseUrl.replace(/\/+$/, '');
+const API_BASE_URL = cleanBaseUrl.endsWith('/api') ? cleanBaseUrl : `${cleanBaseUrl}/api`;
 
 // Create configured Axios instance
 const api = axios.create({
