@@ -1,10 +1,9 @@
 # Dependencies
 node_modules/
 
-# Environment and sensitive keys
+# Environment variables & Sensitive Credentials
 .env
-.env.local
-.env.*.local
+.env.*
 *.env
 !*.env.example
 
