@@ -22,18 +22,21 @@
 
 Designed with a **humanized, architectural visual aesthetic** (warm honey amber `#D97706`, deep slate carbon `#18181B`, and editorial `DM Sans` typography), Eventify completely eliminates generic AI design tells to deliver an experience tailored for university symposiums, tech summits, and cultural gatherings.
 
-```mermaid
-flowchart LR
-    Client["React 19 SPA\n(Vite + Tailwind v4)"]
-    API["Express.js REST API\n(Node.js Microservice)"]
-    DB[(MongoDB\nPersistent Store)]
-    Sec["Security Layer\n(Helmet + RateLimit + CORS)"]
-
-    Client -->|Axios REST Calls| Sec
-    Sec --> API
-    API -->|Mongoose Schema & Hooks| DB
-    DB -->|Real-Time Inventory State| API
-    API -->|JSON Response + Virtuals| Client
+```text
+┌─────────────────────────────────┐                 ┌─────────────────────────────────┐
+│     React 19 Client (SPA)       │   REST / JSON   │      Express.js REST API        │
+│   • Vite Bundler                │ ◄─────────────► │   • Node.js Microservice        │
+│   • Tailwind CSS v4             │   HTTP / CORS   │   • Helmet, Rate-Limit, CORS    │
+│   • Responsive Single-Page UI   │                 │   • Validation & Error Pipeline │
+└─────────────────────────────────┘                 └────────────────┬────────────────┘
+                                                                     │ Mongoose ODM
+                                                                     ▼
+                                                    ┌─────────────────────────────────┐
+                                                    │      MongoDB Database           │
+                                                    │   • Events Collection           │
+                                                    │   • Customers Collection        │
+                                                    │   • Bookings Collection         │
+                                                    └─────────────────────────────────┘
 ```
 
 ---
@@ -64,65 +67,61 @@ Eventify implements **3 decoupled modules providing 12+ verified CRUD operations
 
 ## 🏛️ System Architecture
 
-### Entity Relationship Diagram (ERD)
+### Entity Relationship Model
 
-```mermaid
-erDiagram
-    EVENT {
-        ObjectId _id PK
-        string title
-        string description
-        string category
-        string venue
-        date eventDate
-        number ticketPrice
-        number totalCapacity
-        number availableSeats
-        string bannerUrl
-        string status
-    }
-
-    CUSTOMER {
-        ObjectId _id PK
-        string fullName
-        string email UK
-        string phone
-        string city
-        string organization
-        date createdAt
-    }
-
-    BOOKING {
-        ObjectId _id PK
-        ObjectId customer FK
-        ObjectId event FK
-        string bookingReference UK
-        number ticketQuantity
-        string ticketType
-        number unitPrice
-        number totalAmount
-        string paymentStatus
-        string bookingStatus
-        date bookingDate
-    }
-
-    CUSTOMER ||--o{ BOOKING : "places"
-    EVENT ||--o{ BOOKING : "reserves capacity in"
+```text
+  ┌───────────────────────────────┐                  ┌───────────────────────────────┐
+  │           CUSTOMER            │ 1              * │            BOOKING            │
+  ├───────────────────────────────┤                  ├───────────────────────────────┤
+  │ _id : ObjectId (PK)           │                  │ _id : ObjectId (PK)           │
+  │ fullName : String             │───[ Places ]────►│ customer : ObjectId (FK)      │
+  │ email : String (Unique)       │                  │ event : ObjectId (FK)         │
+  │ phone : String                │                  │ bookingReference : String (UQ)│
+  │ city : String                 │                  │ ticketQuantity : Number       │
+  │ organization : String         │                  │ ticketType : String           │
+  │ createdAt : Date              │                  │ unitPrice : Number            │
+  └───────────────────────────────┘                  │ totalAmount : Number          │
+                                                     │ paymentStatus : String        │
+  ┌───────────────────────────────┐                  │ bookingStatus : String        │
+  │             EVENT             │ 1              * │ bookingDate : Date            │
+  ├───────────────────────────────┤                  └───────────────────────────────┘
+  │ _id : ObjectId (PK)           │                                  ▲
+  │ title : String                │                                  │
+  │ description : String          │───[ Reserves Capacity In ]───────┘
+  │ category : String             │
+  │ venue : String                │
+  │ eventDate : Date              │
+  │ ticketPrice : Number          │
+  │ totalCapacity : Number        │
+  │ availableSeats : Number       │
+  │ bannerUrl : String            │
+  │ status : String               │
+  └───────────────────────────────┘
 ```
+
+#### Relational Integrity Rules
+* **Customer to Booking (1 : N):** A registered attendee can hold multiple reservations over time. Deleting a customer is blocked if linked to active bookings.
+* **Event to Booking (1 : N):** Each booking reserves seats from one specific event. An event cannot be deleted while active bookings reference it.
+* **Unique Constraints:** Customer emails are indexed and strictly unique (`409 Conflict` on duplicate). Booking reference codes (`EVT-XXXXXX`) are unique cryptographic strings.
 
 ### Business Logic & Inventory State Engine
 
-```mermaid
-stateDiagram-v2
-    [*] --> Standby: Event Initialized (Available = Capacity)
-    Standby --> BookingAttempt: User Submits Reservation
-    BookingAttempt --> Rejected: Quantity > Available Seats (HTTP 400)
-    BookingAttempt --> Reserved: Quantity <= Available Seats
-    Reserved --> ActiveConfirmed: Available = Available - Quantity
-    ActiveConfirmed --> Cancelled: Status Changed to Cancelled
-    Cancelled --> Standby: Available = Available + Quantity (Restored)
-    ActiveConfirmed --> Deleted: Reservation Removed
-    Deleted --> Standby: Seats Automatically Restored
+```text
+  [Event Initialized] ──► Available Seats = Total Capacity
+          │
+          ▼
+  [Reservation Submitted] (Requesting N Tickets)
+          │
+          ├── If N > Available Seats ────► REJECTED (HTTP 400: Insufficient Seats)
+          │
+          └── If N <= Available Seats ───► CONFIRMED (HTTP 201: Available = Available - N)
+                                                    │
+                 ┌──────────────────────────────────┴──────────────────────────────────┐
+                 ▼                                                                     ▼
+     [Booking Cancelled (PUT)]                                             [Booking Deleted (DELETE)]
+                 │                                                                     │
+                 └────────────────────────► SEATS RESTORED ◄───────────────────────────┘
+                                    (Available = Available + N)
 ```
 
 ---
