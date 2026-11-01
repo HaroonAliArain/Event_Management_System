@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --color-brand-50: #F4F4F5;
+  --color-brand-100: #E4E4E7;
+  --color-brand-200: #D4D4D8;
+  --color-brand-700: #27272A;
+  --color-brand-800: #18181B;
+  --color-brand-900: #09090B;
+}
+
+/* Global root typography scale and friendly rendering */
+html {
+  font-size: 16px;
+}
+
+body {
+  margin: 0;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: #F8F9FA;
+  color: #09090B;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Print styles for ticket boarding pass */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printable-ticket, #printable-ticket * {
+    visibility: visible;
+  }
+  #printable-ticket {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+}
