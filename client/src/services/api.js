@@ -3,7 +3,9 @@ import axios from 'axios';
 // API base URL configuration with automatic endpoint normalization
 const rawBaseUrl =
   import.meta.env.VITE_API_BASE_URL ||
-  (import.meta.env.DEV ? 'http://localhost:5001/api' : '/api');
+  (import.meta.env.DEV
+    ? 'http://localhost:5001/api'
+    : 'https://event-management-system-rose-two.vercel.app/api');
 const cleanBaseUrl = rawBaseUrl.replace(/\/+$/, '');
 const API_BASE_URL = cleanBaseUrl.endsWith('/api') ? cleanBaseUrl : `${cleanBaseUrl}/api`;
 
