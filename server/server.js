@@ -1,5 +1,6 @@
 const path = require('path');
 const express = require('express');
+const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -13,8 +14,10 @@ const errorHandler = require('./middleware/errorHandler');
 dotenv.config({ path: path.join(__dirname, '.env') });
 dotenv.config();
 
-// Connect to MongoDB database
-connectDB();
+// Asynchronous non-blocking initial database connection
+connectDB().catch((err) => {
+  console.warn('[Database] Initial connection deferred:', err.message);
+});
 
 const app = express();
 
@@ -49,16 +52,6 @@ app.use(
   })
 );
 
-// Ensure database connection is ready for serverless requests
-app.use(async (req, res, next) => {
-  try {
-    await connectDB();
-    next();
-  } catch (err) {
-    next(err);
-  }
-});
-
 // HTTP request logging in development
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
@@ -81,13 +74,14 @@ app.use('/api', limiter);
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
-// Root welcome endpoint
+// Root welcome endpoint (always responds, never crashes)
 app.get('/', (req, res) => {
   res.status(200).json({
     success: true,
     message: 'Eventify REST API Service is online and operational',
     version: '1.0.0',
     environment: process.env.NODE_ENV || 'production',
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'connecting',
     endpoints: {
       health: '/api/health',
       events: '/api/events',
@@ -105,6 +99,7 @@ app.get('/api', (req, res) => {
     success: true,
     message: 'Eventify API Root Directory',
     version: '1.0.0',
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'connecting',
     endpoints: {
       health: '/api/health',
       events: '/api/events',
@@ -115,22 +110,44 @@ app.get('/api', (req, res) => {
   });
 });
 
-// Health verification endpoint
+// Health verification endpoint (always responds 200 with DB status)
 app.get('/api/health', (req, res) => {
   res.status(200).json({
     success: true,
     message: 'Eventify API Server is operational',
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'connecting',
     uptime: `${Math.round(process.uptime())}s`,
     environment: process.env.NODE_ENV || 'development',
     timestamp: new Date().toISOString(),
   });
 });
 
-// Mount application REST routes
-app.use('/api/events', require('./routes/eventRoutes'));
-app.use('/api/customers', require('./routes/customerRoutes'));
-app.use('/api/bookings', require('./routes/bookingRoutes'));
-app.use('/api/stats', require('./routes/statsRoutes'));
+// Middleware to ensure database connection before executing CRUD queries
+const ensureDbConnected = async (req, res, next) => {
+  try {
+    if (mongoose.connection.readyState < 1) {
+      const conn = await connectDB();
+      if (!conn) {
+        return res.status(503).json({
+          success: false,
+          message: 'Database connection is temporarily unavailable. Please verify MONGODB_URI on Vercel.',
+        });
+      }
+    }
+    next();
+  } catch (err) {
+    return res.status(503).json({
+      success: false,
+      message: 'Database connection error: ' + err.message,
+    });
+  }
+};
+
+// Mount application REST routes with safe database middleware
+app.use('/api/events', ensureDbConnected, require('./routes/eventRoutes'));
+app.use('/api/customers', ensureDbConnected, require('./routes/customerRoutes'));
+app.use('/api/bookings', ensureDbConnected, require('./routes/bookingRoutes'));
+app.use('/api/stats', ensureDbConnected, require('./routes/statsRoutes'));
 
 // 404 route not found handler
 app.use(notFound);
@@ -149,19 +166,17 @@ if (!process.env.VERCEL) {
   });
 }
 
-// Handle unhandled Promise rejections
+// Handle unhandled Promise rejections safely
 process.on('unhandledRejection', (err) => {
-  console.error(`[Unhandled Rejection Fatal]: ${err.message}`);
-  if (server) {
+  console.error(`[Unhandled Rejection]: ${err.message}`);
+  if (server && !process.env.VERCEL) {
     server.close(() => process.exit(1));
-  } else if (!process.env.VERCEL) {
-    process.exit(1);
   }
 });
 
-// Handle uncaught exceptions
+// Handle uncaught exceptions safely
 process.on('uncaughtException', (err) => {
-  console.error(`[Uncaught Exception Fatal]: ${err.message}`);
+  console.error(`[Uncaught Exception]: ${err.message}`);
   if (!process.env.VERCEL) {
     process.exit(1);
   }

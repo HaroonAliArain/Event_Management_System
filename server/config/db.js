@@ -14,8 +14,15 @@ const connectDB = async () => {
     return cachedConnection;
   }
 
+  const mongoUri =
+    process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/eventify_db';
+
+  if (!mongoUri) {
+    console.warn('[Database Warning] MONGODB_URI is not defined.');
+    return null;
+  }
+
   try {
-    const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/eventify_db';
     const conn = await mongoose.connect(mongoUri, {
       autoIndex: true,
       serverSelectionTimeoutMS: 5000,
@@ -32,6 +39,7 @@ const connectDB = async () => {
     // Handle database disconnection
     mongoose.connection.on('disconnected', () => {
       console.warn('[Database Warning] MongoDB connection lost. Attempting reconnect...');
+      cachedConnection = null;
     });
 
     // Handle database reconnection
@@ -41,11 +49,9 @@ const connectDB = async () => {
 
     return conn;
   } catch (error) {
-    console.error(`[Database Fatal] Could not connect to MongoDB: ${error.message}`);
-    if (!process.env.VERCEL) {
-      process.exit(1);
-    }
-    throw error;
+    console.error(`[Database Error] Could not connect to MongoDB: ${error.message}`);
+    cachedConnection = null;
+    return null;
   }
 };
 
