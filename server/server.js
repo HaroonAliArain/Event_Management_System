@@ -1,3 +1,4 @@
+const path = require('path');
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
@@ -8,7 +9,8 @@ const connectDB = require('./config/db');
 const notFound = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
 
-// Load environment configuration
+// Load environment configuration from server directory or root
+dotenv.config({ path: path.join(__dirname, '.env') });
 dotenv.config();
 
 // Connect to MongoDB database
@@ -21,15 +23,21 @@ app.use(helmet());
 
 // Cross-Origin Resource Sharing setup
 const allowedOrigins = [
-  process.env.CLIENT_URL || 'http://localhost:5173',
+  process.env.CLIENT_URL,
+  'http://localhost:5173',
   'http://localhost:3000',
   'http://127.0.0.1:5173',
-];
+].filter(Boolean);
 
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin || allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV === 'development') {
+      if (
+        !origin ||
+        allowedOrigins.indexOf(origin) !== -1 ||
+        process.env.NODE_ENV === 'development' ||
+        (typeof origin === 'string' && origin.endsWith('.vercel.app'))
+      ) {
         callback(null, true);
       } else {
         callback(new Error('Blocked by CORS policy.'));
@@ -40,6 +48,16 @@ app.use(
     allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
+
+// Ensure database connection is ready for serverless requests
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 // HTTP request logging in development
 if (process.env.NODE_ENV === 'development') {
@@ -62,6 +80,40 @@ app.use('/api', limiter);
 // Request body parsers with payload limits
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+
+// Root welcome endpoint
+app.get('/', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Eventify REST API Service is online and operational',
+    version: '1.0.0',
+    environment: process.env.NODE_ENV || 'production',
+    endpoints: {
+      health: '/api/health',
+      events: '/api/events',
+      customers: '/api/customers',
+      bookings: '/api/bookings',
+      stats: '/api/stats',
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Root API directory endpoint
+app.get('/api', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Eventify API Root Directory',
+    version: '1.0.0',
+    endpoints: {
+      health: '/api/health',
+      events: '/api/events',
+      customers: '/api/customers',
+      bookings: '/api/bookings',
+      stats: '/api/stats',
+    },
+  });
+});
 
 // Health verification endpoint
 app.get('/api/health', (req, res) => {
@@ -86,32 +138,43 @@ app.use(notFound);
 // Centralized error handling middleware
 app.use(errorHandler);
 
-// Start HTTP server
+// Start HTTP server (in standalone / non-serverless environments)
 const PORT = process.env.PORT || 5001;
+let server;
 
-const server = app.listen(PORT, () => {
-  console.log(`[Server] Eventify REST API running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-  console.log(`[Health] Check endpoint: http://localhost:${PORT}/api/health`);
-});
+if (!process.env.VERCEL) {
+  server = app.listen(PORT, () => {
+    console.log(`[Server] Eventify REST API running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+    console.log(`[Health] Check endpoint: http://localhost:${PORT}/api/health`);
+  });
+}
 
 // Handle unhandled Promise rejections
 process.on('unhandledRejection', (err) => {
   console.error(`[Unhandled Rejection Fatal]: ${err.message}`);
-  server.close(() => process.exit(1));
+  if (server) {
+    server.close(() => process.exit(1));
+  } else if (!process.env.VERCEL) {
+    process.exit(1);
+  }
 });
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
   console.error(`[Uncaught Exception Fatal]: ${err.message}`);
-  process.exit(1);
+  if (!process.env.VERCEL) {
+    process.exit(1);
+  }
 });
 
 // Handle termination signals for clean shutdown
 process.on('SIGTERM', () => {
   console.log('[System] SIGTERM received. Gracefully closing HTTP server...');
-  server.close(() => {
-    console.log('[System] HTTP server closed cleanly.');
-  });
+  if (server) {
+    server.close(() => {
+      console.log('[System] HTTP server closed cleanly.');
+    });
+  }
 });
 
 module.exports = app;
