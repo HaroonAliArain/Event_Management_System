@@ -22,7 +22,7 @@ const connectDB = async () => {
     });
 
     cachedConnection = conn;
-    console.log(`[Database] MongoDB Connected: ${conn.connection.host}/${conn.connection.name}`);
+    console.log('[Database] Database connected successfully.');
 
     // Handle database connection errors
     mongoose.connection.on('error', (err) => {
